@@ -69,8 +69,10 @@ AVDautoUp (YouTube Shorts Auto-Uploader)
 │   └── 재시도 / 에러 처리
 │
 ├── config_manager.py       # 설정 관리
-│   ├── 채널 설정 (YAML)
-│   ├── 업로드 배치 (YAML)
+│   ├── 전역 설정 로드 (settings.yaml)
+│   ├── 채널 설정 (channels.yaml)
+│   ├── 업로드 배치 (upload_batch.yaml)
+│   ├── AVD 경로 관리 (CLI / 환경변수 / 설정파일 우선순위)
 │   └── 계정 정보 암호화 (cryptography)
 │
 ├── ui.py                   # 인터페이스 (선택)
@@ -102,12 +104,16 @@ AVDautoUp (YouTube Shorts Auto-Uploader)
 Android Studio GUI 없이 CLI를 `subprocess`로 호출하여 20개 AVD를 자동 생성.
 
 **주요 단계:**
-1. 시스템 이미지 설치 — `sdkmanager "system-images;android-34;google_apis_playstore;x86_64"`
+1. AVD 저장 경로 설정 (사용자 입력 또는 설정 파일)
+   - CLI: `python main.py init --avd-home /mnt/external_ssd/android_avd`
+   - 환경변수: `export ANDROID_AVD_HOME=/mnt/external_ssd/android_avd`
+   - 설정파일: `config/settings.yaml`의 `avd_home` 항목
+2. 시스템 이미지 설치 — `sdkmanager "system-images;android-34;google_apis_playstore;x86_64"`
    - YouTube 앱 로그인이 필요하므로 반드시 **Google Play 이미지**(`google_apis_playstore`) 사용
-2. AVD 생성 — `avdmanager create avd -n avd_ch01 -k "..." -d "Pixel 6 Pro"`
-3. 고유 fingerprint 설정 (§3.2)
-4. 네트워크 할당 (§3.4)
-5. 스냅샷 저장 (§3.5)
+3. AVD 생성 — `avdmanager create avd -n avd_ch01 -k "..." -d "Pixel 6 Pro" --path $ANDROID_AVD_HOME/avd_ch01`
+4. 고유 fingerprint 설정 (§3.2)
+5. 네트워크 할당 (§3.4)
+6. 스냅샷 저장 (§3.5)
 
 **기기 모델:** 통일(예: Pixel 6 Pro)로 시작. fingerprint(Serial/IMEI/Android ID)가 다르면 모델이 같아도 별개 기기로 인식됨. 운영 중 필요 시 모델 다양화 옵션(`diverse_models=True`)으로 전환 가능하도록 설계.
 
@@ -181,7 +187,31 @@ Loop (채널 1 → 20):
 
 ## 4. 설정 파일 설계
 
-### 4.1 채널 설정 (`config/channels.yaml`)
+### 4.1 전역 설정 (`config/settings.yaml`)
+AVD 저장 경로 등 프로그램 전체에 적용되는 설정.
+
+```yaml
+# 필수 설정
+avd_home: "/mnt/external_ssd/android_avd"  # AVD 저장 경로 (절대경로)
+                                             # 또는 "~/.android/avd" (상대경로)
+                                             # 또는 "/path/to/local/storage"
+
+android_sdk_root: "/path/to/android/sdk"    # Android SDK 경로 (없으면 환경변수 사용)
+
+# 선택 설정
+log_dir: "./logs"                            # 로그 저장 경로
+temp_dir: "./temp"                           # 임시 파일 경로 (영상 처리 등)
+config_dir: "./config"                       # 설정 파일 경로
+
+# AVD 생성 옵션
+avd_api_level: 34                            # 안드로이드 API 레벨
+avd_device_model: "Pixel 6 Pro"              # 기기 모델
+avd_ram: 2048                                # 메모리 (MB)
+avd_storage: 4096                            # 저장소 (MB)
+diverse_models: false                        # 기기 모델 다양화 여부
+```
+
+### 4.2 채널 설정 (`config/channels.yaml`)
 ```yaml
 channels:
   - id: 1
@@ -189,6 +219,7 @@ channels:
     password: "<encrypted>"
     avd_device: "avd_ch01"
     proxy: { host: "proxy1.example.com", port: 8080, country: "US" }
+  
   - id: 2
     email: "channel2@gmail.com"
     password: "<encrypted>"
@@ -196,7 +227,7 @@ channels:
     proxy: { host: "proxy2.example.com", port: 8080, country: "UK" }
 ```
 
-### 4.2 업로드 배치 (`config/upload_batch.yaml`)
+### 4.3 업로드 배치 (`config/upload_batch.yaml`)
 ```yaml
 uploads:
   - channel_id: 1
@@ -206,6 +237,7 @@ uploads:
     bgm_file: "/bgm/music.mp3"
     visibility: "PRIVATE"
     scheduled_time: "2026-07-25 10:00:00"
+  
   - channel_id: 2
     video_file: "/videos/shorts_002.mp4"
     title: "쇼츠 제목 #2"
@@ -214,6 +246,14 @@ uploads:
     visibility: "PUBLIC"
     # scheduled_time 생략 시 즉시 발행
 ```
+
+### 4.4 경로 설정 우선순위
+프로그램 실행 시 AVD 경로는 다음 순서로 결정됨:
+
+1. **CLI 옵션** (최우선): `python main.py --avd-home /path/to/ssd`
+2. **환경 변수**: `export ANDROID_AVD_HOME=/path/to/ssd`
+3. **설정 파일**: `config/settings.yaml`의 `avd_home`
+4. **기본값**: `~/.android/avd`
 
 ---
 
@@ -245,4 +285,30 @@ uploads:
 ---
 
 ## 7. 다음 단계
-Phase 1 착수: `avd_manager.py`의 AVD 생성 + fingerprint 설정 모듈부터 구현하고, `uiautomator2` 기반 YouTube 로그인·업로드 프로토타입으로 파이프라인 검증.
+
+### Phase 1 착수 순서
+1. `config_manager.py` 구현
+   - 설정 파일 로드/검증 (YAML 파싱)
+   - CLI 옵션 처리 (Typer)
+   - AVD 경로 우선순위 결정 로직
+   
+2. `avd_manager.py` 구현
+   - AVD 생성/삭제 (자동 경로 지정)
+   - Fingerprint 설정 (Serial, IMEI)
+   - 스냅샷 관리
+
+3. `automation.py` 프로토타입
+   - `uiautomator2` 기반 YouTube 로그인 자동화
+   - Shorts 업로드 UI 조작
+
+### CLI 사용 예시 (Phase 1 완성 후)
+```bash
+# AVD 경로 지정하여 초기화
+python main.py init --avd-home /mnt/external_ssd/android_avd --num-channels 20
+
+# 또는 설정 파일 사용
+python main.py init --config config/settings.yaml
+
+# 순차 업로드
+python main.py upload --avd-home /mnt/external_ssd/android_avd --batch config/upload_batch.yaml
+```
