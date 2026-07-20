@@ -170,9 +170,16 @@ def upload(
     avd_home: Optional[str] = typer.Option(None, "--avd-home"),
     sdk_root: Optional[str] = typer.Option(None, "--sdk-root"),
     base_port: int = typer.Option(5554, "--base-port"),
+    randomize: bool = typer.Option(True, "--randomize/--no-randomize", help="업로드 시간 랜덤화"),
+    min_delay: int = typer.Option(60, "--min-delay", help="랜덤 대기 최소(초)"),
+    max_delay: int = typer.Option(300, "--max-delay", help="랜덤 대기 최대(초)"),
+    retries: int = typer.Option(3, "--retries", help="실패 시 최대 재시도 횟수"),
+    bgm_volume: float = typer.Option(0.3, "--bgm-volume", help="BGM 볼륨(0~1)"),
+    use_proxy: bool = typer.Option(True, "--proxy/--no-proxy", help="channels.yaml 프록시 사용"),
+    strict_video: bool = typer.Option(False, "--strict-video", help="쇼츠 사양 위반 시 중단"),
     dry_run: bool = typer.Option(False, "--dry-run"),
 ):
-    """업로드 배치를 순차 실행한다."""
+    """업로드 배치를 순차 실행한다 (BGM 삽입 + 프록시 + 랜덤 대기 + 재시도)."""
     cm = ConfigManager(avd_home_cli=avd_home)
     try:
         batch_cfg = cm.load_upload_batch(batch)
@@ -185,35 +192,47 @@ def upload(
     if dry_run:
         # dry-run 은 SDK/에뮬레이터 없이 배치 내용만 검증한다.
         for i, up in enumerate(batch_cfg.uploads, 1):
-            typer.echo(f"  {i}. ch{up.channel_id} · {up.title} · {up.visibility} · {up.video_file}")
+            bgm = f" +BGM({Path(up.bgm_file).name})" if up.bgm_file else ""
+            sched = f" @{up.scheduled_time}" if up.scheduled_time else ""
+            typer.echo(f"  {i}. ch{up.channel_id} · {up.title} · {up.visibility}{sched}{bgm}")
         raise typer.Exit()
 
-    _, am = _manager(avd_home, sdk_root)
-    from automation import AutomationError, YouTubeAutomation
+    from network_manager import NetworkManager
+    from scheduler import SchedulerOptions, UploadScheduler
+    from video_processor import VideoProcessor
 
-    for up in batch_cfg.uploads:
-        name = f"avd_ch{up.channel_id:02d}"
-        serial = f"emulator-{base_port}"
-        typer.echo(f"\n▶ ch{up.channel_id} · {up.title}")
-        proc = am.boot_avd(name, port=base_port, fingerprint=Fingerprint.for_device(up.channel_id))
+    _, am = _manager(avd_home, sdk_root)
+
+    net = NetworkManager()
+    if use_proxy:
         try:
-            am.load_snapshot(f"channel_{up.channel_id}", serial=serial)
-            yt = YouTubeAutomation(serial=serial)
-            result = yt.upload_short(
-                channel_id=up.channel_id,
-                video_local_path=up.video_file,
-                title=up.title,
-                description=up.description,
-                visibility=up.visibility,
-                scheduled_time=up.scheduled_time,
-            )
-            typer.echo(("  ✓ " if result.success else "  ✗ ") + result.message)
-        except AutomationError as e:
-            typer.echo(f"  ✗ 자동화 오류: {e}")
-        finally:
-            am.shutdown(serial=serial)
-            if proc.poll() is None:
-                proc.wait(timeout=30)
+            net.load_from_channels(cm.load_channels())
+        except FileNotFoundError:
+            typer.echo("  ⚠️ channels.yaml 없음 — 프록시 없이 진행")
+
+    scheduler = UploadScheduler(
+        avd_manager=am,
+        network_manager=net,
+        video_processor=VideoProcessor(temp_dir=cm.settings.temp_dir),
+        options=SchedulerOptions(
+            randomize=randomize,
+            min_delay=min_delay,
+            max_delay=max_delay,
+            max_retries=retries,
+            base_port=base_port,
+            bgm_volume=bgm_volume,
+            strict_video=strict_video,
+        ),
+    )
+
+    results = scheduler.run(batch_cfg.uploads)
+
+    typer.echo("\n── 결과 ─────────────────────────────")
+    ok = sum(1 for r in results if r.success)
+    for r in results:
+        mark = "✓" if r.success else "✗"
+        typer.echo(f"  {mark} ch{r.channel_id} · {r.title} · 시도 {r.attempts}회 · {r.message}")
+    typer.echo(f"성공 {ok}/{len(results)}")
 
 
 def _channel_id_from_name(name: str, fallback: int) -> int:

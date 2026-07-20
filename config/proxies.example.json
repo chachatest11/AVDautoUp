@@ -1,0 +1,5 @@
+[
+  { "host": "proxy1.example.com", "port": 8080, "country": "US", "scheme": "http" },
+  { "host": "proxy2.example.com", "port": 8080, "country": "UK", "scheme": "http" },
+  { "host": "proxy3.example.com", "port": 8080, "country": "CA", "scheme": "http" }
+]

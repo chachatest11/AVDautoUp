@@ -90,15 +90,29 @@ uploads:
     scheduled_time: "2026-07-25 10:00:00"  # 선택사항
 ```
 
-### 7. 일괄 업로드 (Phase 2 이후)
+### 7. 일괄 업로드
 
 ```bash
-# 확인 모드
+# 확인 모드 (SDK 없이 배치 내용만 검증)
 python main.py upload --batch config/upload_batch.yaml --dry-run
 
-# 실제 업로드
+# 실제 업로드 (BGM 삽입 + 프록시 + 랜덤 대기 + 재시도 포함)
 python main.py upload --batch config/upload_batch.yaml
+
+# 옵션 예시: 랜덤 대기 끄고, 재시도 5회, BGM 볼륨 0.2
+python main.py upload --no-randomize --retries 5 --bgm-volume 0.2
+
+# 프록시 미사용, 쇼츠 사양 위반 시 중단
+python main.py upload --no-proxy --strict-video
 ```
+
+**동작 순서** (채널별 순차):
+1. 랜덤 대기 (`--min-delay`~`--max-delay`, 기본 60~300초)
+2. 고정 프록시(`channels.yaml`) + fingerprint 로 AVD 부팅
+3. 스냅샷 복원 (로그인 상태)
+4. 영상 전처리 — ffmpeg 로 BGM 삽입, 쇼츠 사양 검증
+5. uiautomator2 로 업로드 (제목/설명/공개범위)
+6. AVD 종료 — 실패 시 지수 백오프로 재시도
 
 ## 📁 디렉토리 구조
 
@@ -112,11 +126,11 @@ AVDautoUp/
 │   ├── channels.yaml           # 채널 설정 (계정 정보)
 │   └── upload_batch.yaml       # 업로드 배치
 ├── config_manager.py           # 설정 관리
-├── avd_manager.py              # AVD 생성/제어
-├── automation.py               # YouTube UI 자동화 (Phase 2)
-├── video_processor.py          # 영상 처리 (Phase 2)
-├── network_manager.py          # 네트워크 분산 (Phase 3)
-├── scheduler.py                # 스케줄링 (Phase 3)
+├── avd_manager.py              # AVD 생성/제어 + fingerprint
+├── automation.py               # YouTube UI 자동화 (uiautomator2)
+├── video_processor.py          # 영상 처리 (ffmpeg BGM 삽입/검증)
+├── network_manager.py          # 네트워크 분산 (프록시)
+├── scheduler.py                # 순차 스케줄링 + 재시도
 └── main.py                     # CLI 진입점
 ```
 
