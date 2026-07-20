@@ -1,15 +1,19 @@
-"""AVDautoUp CLI (Phase 1).
+"""AVDautoUp CLI.
 
 명령:
+  doctor          기기 테스트 전 환경 점검 (SDK/도구/가속/의존성)
   init            AVD 20개 생성 (사용자 지정 경로에 저장)
   setup-channels  각 AVD 부팅 → fingerprint 주입 → 로그인 → 스냅샷 저장
+  dump-ui         실행 중 화면의 UI 트리 덤프 (SELECTORS 보정용)
   status          생성된 AVD 목록/경로 확인
   encrypt         계정 비밀번호 암호화 (channels.yaml 에 넣을 값 생성)
-  upload          업로드 배치 실행 (자동화 프로토타입)
+  upload          업로드 배치 실행 (BGM+프록시+랜덤+재시도)
 """
 
 from __future__ import annotations
 
+import os
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -233,6 +237,115 @@ def upload(
         mark = "✓" if r.success else "✗"
         typer.echo(f"  {mark} ch{r.channel_id} · {r.title} · 시도 {r.attempts}회 · {r.message}")
     typer.echo(f"성공 {ok}/{len(results)}")
+
+
+@app.command()
+def doctor(
+    avd_home: Optional[str] = typer.Option(None, "--avd-home"),
+    sdk_root: Optional[str] = typer.Option(None, "--sdk-root"),
+):
+    """기기 테스트 전 환경 점검 (SDK/도구/가속/의존성)."""
+    typer.echo("── 환경 점검 ────────────────────────")
+    ok = True
+
+    def check(label: str, passed: bool, hint: str = "") -> None:
+        nonlocal ok
+        mark = "✓" if passed else "✗"
+        line = f"  {mark} {label}"
+        if not passed and hint:
+            line += f"  → {hint}"
+        typer.echo(line)
+        ok = ok and passed
+
+    # Python
+    import sys
+
+    check(f"Python {sys.version_info.major}.{sys.version_info.minor}", sys.version_info >= (3, 9), "3.9+ 필요")
+
+    # SDK 경로
+    resolved_sdk = (
+        sdk_root
+        or os.getenv("ANDROID_SDK_ROOT")
+        or os.getenv("ANDROID_HOME")
+    )
+    if not resolved_sdk:
+        for c in (Path.home() / "Android/Sdk", Path.home() / "Library/Android/sdk", Path("/opt/android-sdk")):
+            if c.exists():
+                resolved_sdk = str(c)
+                break
+    check(f"Android SDK: {resolved_sdk or '미발견'}", bool(resolved_sdk and Path(resolved_sdk).exists()),
+          "ANDROID_SDK_ROOT 설정 또는 --sdk-root")
+
+    # SDK 하위 도구
+    sdk = Path(resolved_sdk) if resolved_sdk else None
+    def sdk_tool(*rel: str) -> bool:
+        if sdk:
+            for r in rel:
+                if (sdk / r).exists():
+                    return True
+        return False
+    check("avdmanager", sdk_tool("cmdline-tools/latest/bin/avdmanager", "tools/bin/avdmanager"),
+          "sdkmanager 'cmdline-tools;latest' 설치")
+    check("emulator", sdk_tool("emulator/emulator"), "sdkmanager 'emulator' 설치")
+    check("adb", sdk_tool("platform-tools/adb") or shutil.which("adb") is not None,
+          "sdkmanager 'platform-tools' 설치")
+
+    # ffmpeg (BGM)
+    check("ffmpeg", shutil.which("ffmpeg") is not None, "BGM 삽입에 필요 — brew/apt 로 설치")
+    check("ffprobe", shutil.which("ffprobe") is not None, "영상 검증에 필요")
+
+    # uiautomator2 (자동화)
+    try:
+        import uiautomator2  # noqa: F401
+        check("uiautomator2", True)
+    except Exception:
+        check("uiautomator2", False, "pip install uiautomator2")
+
+    # 하드웨어 가속
+    if sys.platform.startswith("linux"):
+        check("KVM 가속(/dev/kvm)", Path("/dev/kvm").exists(),
+              "가속 없으면 부팅이 매우 느림 — cpu 가상화 활성화")
+
+    # AVD 저장 경로 쓰기 가능
+    cm = ConfigManager(avd_home_cli=avd_home)
+    home = cm.get_avd_home()
+    writable = True
+    try:
+        home.mkdir(parents=True, exist_ok=True)
+        probe = home / ".write_test"
+        probe.write_text("ok")
+        probe.unlink()
+    except Exception:
+        writable = False
+    check(f"AVD 저장경로 쓰기: {home}", writable, "경로 권한/마운트 확인(외장 SSD면 연결 상태)")
+
+    typer.echo("─────────────────────────────────────")
+    typer.echo("모두 통과 ✅ — 기기 테스트 진행 가능" if ok else "일부 실패 ❌ — 위 hint 참고 후 재실행")
+    raise typer.Exit(code=0 if ok else 1)
+
+
+@app.command("dump-ui")
+def dump_ui(
+    serial: str = typer.Option("emulator-5554", "--serial", help="실행 중인 에뮬레이터 serial"),
+    out: str = typer.Option("ui_hierarchy.xml", "--out", help="UI 트리 저장 파일"),
+):
+    """실행 중인 YouTube 화면의 UI 트리를 덤프한다 (SELECTORS 보정용).
+
+    사용법: 에뮬레이터에서 보정하려는 화면을 띄운 뒤 실행.
+    저장된 XML 에서 resource-id / text / content-desc 를 찾아
+    automation.py 의 SELECTORS 를 채운다.
+    """
+    try:
+        import uiautomator2 as u2
+    except Exception:
+        typer.echo("uiautomator2 가 필요합니다: pip install uiautomator2")
+        raise typer.Exit(code=1)
+
+    d = u2.connect(serial)
+    xml = d.dump_hierarchy()
+    Path(out).write_text(xml, encoding="utf-8")
+    typer.echo(f"✓ UI 트리 저장: {out} ({len(xml)} bytes)")
+    typer.echo(f"현재 앱: {d.app_current()}")
 
 
 def _channel_id_from_name(name: str, fallback: int) -> int:
