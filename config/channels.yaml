@@ -1,0 +1,26 @@
+# YouTube 채널 설정
+# 각 채널별 계정 정보 및 네트워크 설정
+
+channels:
+  - id: 1
+    email: "channel1@gmail.com"
+    password: "<encrypted_password_1>"  # 암호화된 비밀번호
+    avd_device: "avd_ch01"
+    proxy:
+      host: "proxy1.example.com"
+      port: 8080
+      country: "US"
+
+  - id: 2
+    email: "channel2@gmail.com"
+    password: "<encrypted_password_2>"
+    avd_device: "avd_ch02"
+    proxy:
+      host: "proxy2.example.com"
+      port: 8080
+      country: "UK"
+
+  # 추가 채널은 같은 형식으로 계속 추가
+  # - id: 3
+  #   email: "channel3@gmail.com"
+  #   ...

@@ -1,0 +1,24 @@
+# YouTube Shorts 업로드 배치 설정
+# 각 채널별 업로드할 영상 정보
+
+uploads:
+  - channel_id: 1
+    video_file: "/path/to/videos/shorts_001.mp4"
+    title: "쇼츠 제목 #1"
+    description: "여기에 설명글을 입력하세요"
+    bgm_file: "/path/to/bgm/music.mp3"           # 선택사항
+    visibility: "PRIVATE"                         # PRIVATE, UNLISTED, PUBLIC
+    scheduled_time: "2026-07-25 10:00:00"        # 선택사항 (미지정시 즉시 발행)
+
+  - channel_id: 2
+    video_file: "/path/to/videos/shorts_002.mp4"
+    title: "쇼츠 제목 #2"
+    description: "여기에 설명글을 입력하세요"
+    bgm_file: "/path/to/bgm/music.mp3"
+    visibility: "PUBLIC"
+    # scheduled_time 생략시 즉시 발행
+
+  # 추가 업로드는 같은 형식으로 계속 추가
+  # - channel_id: 3
+  #   video_file: "/path/to/videos/shorts_003.mp4"
+  #   ...

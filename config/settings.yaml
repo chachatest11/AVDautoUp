@@ -1,0 +1,25 @@
+# YouTube Shorts Auto-Upload 전역 설정
+
+# AVD 저장 경로 (필수)
+# 상대경로: ~/.android/avd
+# 절대경로: /mnt/external_ssd/android_avd
+avd_home: ~/.android/avd
+
+# Android SDK 경로 (선택사항, 없으면 자동 감지)
+android_sdk_root: null
+
+# 로그 저장 경로
+log_dir: logs
+
+# 임시 파일 경로 (영상 처리 등)
+temp_dir: temp
+
+# 설정 파일 경로
+config_dir: config
+
+# AVD 생성 옵션
+avd_api_level: 34                    # Android API 레벨 (반드시 34 이상)
+avd_device_model: "pixel_6_pro"      # 기기 모델명 (avdmanager -d 식별자)
+avd_ram: 2048                        # 메모리 (MB)
+avd_storage: 4096                    # 저장소 (MB)
+diverse_models: false                # 기기 모델 다양화 여부 (true면 model 섞음)
